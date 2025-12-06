@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Liquidity - Cashflow Heatmap</title>
+    
+    <!-- PWA / Mobile Capable -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2936/2936758.png">
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/2936/2936758.png">
+
+    <!-- Libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f1f5f9; -webkit-tap-highlight-color: transparent; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+        .danger-zone { background: rgba(220, 38, 38, 0.1); border-left: 4px solid #ef4444; }
+        .safe-zone { border-left: 4px solid #10b981; }
+        .warn-zone { border-left: 4px solid #f59e0b; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        
+        /* Modal Animation */
+        .modal-enter { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- ICONS ---
+        const Icon = ({ path, color = "currentColor", size = 18, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {path}
+            </svg>
+        );
+
+        const Icons = {
+            Activity: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
+            Dollar: <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />,
+            Trash: <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />,
+            Plus: <path d="M5 12h14M12 5v14" />,
+            Calendar: (<><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>),
+            Info: <circle cx="12" cy="12" r="10" />,
+            X: <path d="M18 6L6 18M6 6l12 12" />,
+            Check: <path d="M20 6L9 17l-5-5" />,
+            ArrowRight: <path d="M5 12h14M12 5l7 7-7 7" />
+        };
+
+        // --- COMPONENTS ---
+        const Card = ({ children, className = "" }) => (
+            <div className={`glass rounded-xl p-5 ${className}`}>{children}</div>
+        );
+
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                    <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl modal-enter relative max-h-[90vh] overflow-y-auto">
+                        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white"><Icon path={Icons.X} /></button>
+                        <h2 className="text-xl font-bold text-white mb-4">{title}</h2>
+                        <div className="text-slate-300 text-sm leading-relaxed space-y-4">
+                            {children}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- LOGIC HELPER ---
+        const getNextOccurrence = (dayOfMonth) => {
+            const today = new Date();
+            const currentDay = today.getDate();
+            const currentMonth = today.getMonth();
+            const currentYear = today.getFullYear();
+            let targetDate = new Date(currentYear, currentMonth, dayOfMonth);
+            if (dayOfMonth < currentDay) targetDate = new Date(currentYear, currentMonth + 1, dayOfMonth);
+            return targetDate;
+        };
+
+        const App = () => {
+            // State
+            const [balance, setBalance] = useState(() => parseFloat(localStorage.getItem('liq_balance')) || 0);
+            const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('liq_items')) || []);
+            const [newItem, setNewItem] = useState({ name: '', amount: '', day: new Date().getDate() + 1, type: 'expense' });
+            
+            // UI State
+            const [showWalkthrough, setShowWalkthrough] = useState(false);
+            const [walkthroughStep, setWalkthroughStep] = useState(0);
+            const [showAbout, setShowAbout] = useState(false);
+            const [showTerms, setShowTerms] = useState(false);
+
+            // Init Check
+            useEffect(() => {
+                const hasVisited = localStorage.getItem('liq_visited');
+                if (!hasVisited) {
+                    setShowWalkthrough(true);
+                    localStorage.setItem('liq_visited', 'true');
+                }
+                localStorage.setItem('liq_balance', balance);
+                localStorage.setItem('liq_items', JSON.stringify(items));
+            }, [balance, items]);
+
+            // --- FORECASTING ENGINE ---
+            const forecast = useMemo(() => {
+                let currentBal = isNaN(balance) ? 0 : balance;
+                const today = new Date();
+                const days = [];
+                let lowestPoint = currentBal;
+                let lowestDate = null;
+
+                for (let i = 0; i < 90; i++) { // Increased to 90 days
+                    const date = new Date();
+                    date.setDate(today.getDate() + i);
+                    const dayNum = date.getDate();
+                    
+                    const activeTransactions = items.filter(item => {
+                        if (dayNum !== parseInt(item.day)) return false;
+                        return true;
+                    });
+
+                    let dailyChange = 0;
+                    activeTransactions.forEach(t => {
+                        if (t.type === 'income') dailyChange += t.amount;
+                        else dailyChange -= t.amount;
+                    });
+
+                    currentBal += dailyChange;
+                    if (currentBal < lowestPoint) {
+                        lowestPoint = currentBal;
+                        lowestDate = date;
+                    }
+
+                    days.push({
+                        date: date,
+                        balance: currentBal,
+                        transactions: activeTransactions,
+                        status: currentBal < 0 ? 'danger' : currentBal < 500 ? 'warn' : 'safe'
+                    });
+                }
+                return { timeline: days, lowestPoint, lowestDate };
+            }, [balance, items]);
+
+            // Handlers
+            const addItem = () => {
+                if (!newItem.name || !newItem.amount) return;
+                let d = parseInt(newItem.day);
+                if (d < 1) d = 1; if (d > 31) d = 31;
+                setItems([...items, { id: Date.now(), ...newItem, day: d, amount: parseFloat(newItem.amount) }]);
+                setNewItem({ name: '', amount: '', day: new Date().getDate(), type: 'expense' });
+            };
+            const removeItem = (id) => setItems(items.filter(i => i.id !== id));
+
+            const sortedItems = [...items].sort((a, b) => getNextOccurrence(a.day) - getNextOccurrence(b.day));
+
+            // Walkthrough Content
+            const steps = [
+                { title: "Welcome to Liquidity", content: "Most finance apps track where your money went. We track where it's GOING. This tool predicts if you will run out of cash in the next 90 days." },
+                { title: "Step 1: Current Balance", content: "Enter your 'Right Now' bank balance in the top left. This is the starting point for the future prediction." },
+                { title: "Step 2: Recurring Items", content: "Add bills (Rent, Netflix) and Income (Salary). Enter the DAY of the month they happen. We automatically calculate the next due date." },
+                { title: "Step 3: The Heatmap", content: "The timeline on the right shows your future balance every single day. If it turns RED, that's a day you will be broke. Fix it before it happens!" }
+            ];
+
+            return (
+                <div className="max-w-6xl mx-auto min-h-screen pb-20 p-4 md:p-8 flex flex-col">
+                    
+                    {/* Header */}
+                    <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                                <span className="text-blue-500"><Icon path={Icons.Activity} /></span>
+                                Liquidity
+                            </h1>
+                            <p className="text-slate-400 text-xs tracking-widest uppercase">Forecast & Survive</p>
+                        </div>
+                        <div className="flex gap-4">
+                            <button onClick={() => setShowWalkthrough(true)} className="text-xs text-blue-400 hover:text-white">Start Tour</button>
+                            <button onClick={() => setShowAbout(true)} className="text-xs text-slate-400 hover:text-white">About</button>
+                        </div>
+                    </header>
+
+                    {/* Main Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
+                        
+                        {/* LEFT: Controls */}
+                        <div className="lg:col-span-4 space-y-6">
+                            
+                            {/* Lowest Point Alert */}
+                            <div className={`p-4 rounded-xl border ${forecast.lowestPoint < 0 ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-800 border-slate-700'}`}>
+                                <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Lowest Future Balance</div>
+                                <div className={`text-3xl font-mono font-bold ${forecast.lowestPoint < 0 ? 'text-red-500' : 'text-emerald-400'}`}>
+                                    ${forecast.lowestPoint.toLocaleString()}
+                                </div>
+                                {forecast.lowestPoint < 0 && (
+                                    <div className="text-xs text-red-400 mt-2 flex items-center gap-1">
+                                        <Icon path={Icons.Info} size={12}/> Danger on {forecast.lowestDate?.toLocaleDateString()}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Balance Input */}
+                            <Card className="border-t-4 border-t-blue-500">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">Current Bank Balance</label>
+                                <div className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-3 border border-slate-700 focus-within:border-blue-500 transition-all">
+                                    <span className="text-slate-400">$</span>
+                                    <input type="number" value={balance} onChange={(e) => setBalance(parseFloat(e.target.value))} className="bg-transparent w-full text-xl font-bold text-white focus:outline-none" placeholder="0.00" />
+                                </div>
+                            </Card>
+
+                            {/* Add Item */}
+                            <Card>
+                                <h3 className="font-bold text-white mb-4 text-sm">Add Recurring Item</h3>
+                                <div className="space-y-3">
+                                    <input type="text" placeholder="Name (e.g. Rent)" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input type="number" placeholder="Amount" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.amount} onChange={e => setNewItem({...newItem, amount: e.target.value})} />
+                                        <input type="number" min="1" max="31" placeholder="Day (1-31)" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.day} onChange={e => setNewItem({...newItem, day: e.target.value})} />
+                                    </div>
+                                    <div className="flex bg-slate-900 rounded border border-slate-700 p-1 mt-2">
+                                        <button className={`flex-1 text-xs rounded py-2 font-semibold ${newItem.type === 'expense' ? 'bg-red-500/20 text-red-400' : 'text-slate-500'}`} onClick={() => setNewItem({...newItem, type: 'expense'})}>Expense</button>
+                                        <button className={`flex-1 text-xs rounded py-2 font-semibold ${newItem.type === 'income' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500'}`} onClick={() => setNewItem({...newItem, type: 'income'})}>Income</button>
+                                    </div>
+                                    <button onClick={addItem} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg mt-2 text-sm">Add Item</button>
+                                </div>
+                            </Card>
+
+                            {/* List */}
+                            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                                {sortedItems.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-800/40 border border-slate-700 hover:border-slate-600 transition-colors group">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex flex-col items-center justify-center bg-slate-900 h-9 w-9 rounded border border-slate-700">
+                                                <span className="text-[8px] text-slate-500 uppercase">{getNextOccurrence(item.day).toLocaleString('default', { month: 'short' })}</span>
+                                                <span className="text-xs font-bold text-white">{item.day}</span>
+                                            </div>
+                                            <div>
+                                                <div className="font-medium text-sm text-white">{item.name}</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className={`font-mono text-sm font-bold ${item.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                {item.type === 'income' ? '+' : '-'}{item.amount}
+                                            </span>
+                                            <button onClick={() => removeItem(item.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100"><Icon path={Icons.Trash} size={14} /></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* RIGHT: Timeline */}
+                        <div className="lg:col-span-8 flex flex-col h-[600px] lg:h-auto glass rounded-xl overflow-hidden shadow-2xl relative">
+                            <div className="p-4 bg-slate-800/90 border-b border-slate-700 flex justify-between items-center z-10 backdrop-blur">
+                                <h3 className="font-bold flex items-center gap-2 text-white text-sm">
+                                    <Icon path={Icons.Calendar} className="text-blue-400" /> 90-Day Forecast
+                                </h3>
+                            </div>
+                            <div className="overflow-y-auto flex-1 p-0 bg-slate-900/30">
+                                {forecast.timeline.map((day, idx) => (
+                                    <div key={idx} className={`p-3 border-b border-slate-800/50 flex items-center justify-between transition-colors hover:bg-slate-800/40 ${day.status === 'danger' ? 'danger-zone' : day.status === 'warn' ? 'warn-zone' : 'safe-zone'}`}>
+                                        <div className="w-28">
+                                            <div className={`text-sm font-bold ${idx === 0 ? 'text-blue-400' : 'text-slate-300'}`}>{idx === 0 ? 'Today' : day.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                                            <div className="text-[10px] text-slate-500">{day.date.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                                        </div>
+                                        <div className="flex-1 px-4 space-y-1">
+                                            {day.transactions.map((t, ti) => (
+                                                <div key={ti} className={`text-[11px] flex items-center gap-2 ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                    <span className="font-bold">{t.type === 'income' ? '+' : '-'} {t.amount}</span>
+                                                    <span className="text-slate-400 opacity-75 truncate">{t.name}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="text-right w-24">
+                                            <div className={`font-mono text-sm font-bold ${day.status === 'danger' ? 'text-red-500' : day.status === 'warn' ? 'text-amber-400' : 'text-slate-300'}`}>${day.balance.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Footer */}
+                    <footer className="mt-8 text-center text-slate-600 text-xs flex justify-center gap-4">
+                        <button onClick={() => setShowTerms(true)} className="hover:text-slate-400">Terms & Conditions</button>
+                        <span>•</span>
+                        <button onClick={() => setShowAbout(true)} className="hover:text-slate-400">About Us</button>
+                        <span>•</span>
+                        <span>© 2025 Liquidity</span>
+                    </footer>
+
+                    {/* MODALS */}
+                    
+                    {/* Walkthrough Modal */}
+                    {showWalkthrough && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+                            <div className="bg-slate-900 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl relative">
+                                <div className="mb-4 flex justify-center text-blue-500"><Icon path={Icons.Info} size={48} /></div>
+                                <h2 className="text-xl font-bold text-white text-center mb-2">{steps[walkthroughStep].title}</h2>
+                                <p className="text-slate-400 text-center text-sm mb-6 min-h-[60px]">{steps[walkthroughStep].content}</p>
+                                <div className="flex justify-between items-center">
+                                    <div className="flex gap-1">
+                                        {steps.map((_, i) => <div key={i} className={`h-1.5 w-1.5 rounded-full ${i === walkthroughStep ? 'bg-blue-500' : 'bg-slate-700'}`}></div>)}
+                                    </div>
+                                    <button 
+                                        onClick={() => {
+                                            if (walkthroughStep < steps.length - 1) setWalkthroughStep(s => s + 1);
+                                            else { setShowWalkthrough(false); setWalkthroughStep(0); }
+                                        }}
+                                        className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
+                                    >
+                                        {walkthroughStep < steps.length - 1 ? "Next" : "Get Started"} <Icon path={Icons.ArrowRight} size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <Modal isOpen={showAbout} onClose={() => setShowAbout(false)} title="About Liquidity">
+                        <p><strong>Liquidity</strong> is not an expense tracker. It is a <em>Solvency Engine</em> designed for freelancers, entrepreneurs, and students.</p>
+                        <p>Most banking apps tell you what you spent yesterday. Liquidity tells you if you'll be broke next month.</p>
+                        <p>We believe in <strong>Local-First Privacy</strong>. Your financial data is stored 100% in your browser (LocalStorage). It never touches our servers.</p>
+                        <p>Built with ❤️ by Harshil Patel.</p>
+                    </Modal>
+
+                    <Modal isOpen={showTerms} onClose={() => setShowTerms(false)} title="Terms & Conditions">
+                        <h3 className="font-bold text-white mt-2">1. No Financial Advice</h3>
+                        <p>This tool is for informational purposes only. It is not professional financial advice. Always consult a qualified accountant before making major financial decisions.</p>
+                        <h3 className="font-bold text-white mt-2">2. Data Privacy</h3>
+                        <p>We do not collect, store, or sell your data. All calculations happen on your device. If you clear your browser cache, your data will be lost.</p>
+                        <h3 className="font-bold text-white mt-2">3. Liability</h3>
+                        <p>The creators of Liquidity are not liable for any financial losses incurred while using this tool. Use at your own risk.</p>
+                    </Modal>
+
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
