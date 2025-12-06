@@ -102,13 +102,20 @@
             const [showAbout, setShowAbout] = useState(false);
             const [showTerms, setShowTerms] = useState(false);
 
-            // Init Check
+            // --- 1. INITIALIZATION EFFECT (Runs Once) ---
             useEffect(() => {
-                const hasVisited = localStorage.getItem('liq_visited');
-                if (!hasVisited) {
+                // We use a specific key "liq_v5_tour_seen" to force the tour to show 
+                // for existing users who upgrade to this version.
+                const tourSeen = localStorage.getItem('liq_v5_tour_seen');
+                
+                if (!tourSeen) {
                     setShowWalkthrough(true);
-                    localStorage.setItem('liq_visited', 'true');
+                    localStorage.setItem('liq_v5_tour_seen', 'true');
                 }
+            }, []);
+
+            // --- 2. PERSISTENCE EFFECT (Runs on Data Change) ---
+            useEffect(() => {
                 localStorage.setItem('liq_balance', balance);
                 localStorage.setItem('liq_items', JSON.stringify(items));
             }, [balance, items]);
@@ -170,7 +177,7 @@
                 { title: "Welcome to Liquidity", content: "Most finance apps track where your money went. We track where it's GOING. This tool predicts if you will run out of cash in the next 90 days." },
                 { title: "Step 1: Current Balance", content: "Enter your 'Right Now' bank balance in the top left. This is the starting point for the future prediction." },
                 { title: "Step 2: Recurring Items", content: "Add bills (Rent, Netflix) and Income (Salary). Enter the DAY of the month they happen." },
-                { title: "Smart Default Date", content: "Notice the 'Day' box defaults to TOMORROW. We do this to help you add upcoming bills quickly, but you should change this number to whatever day of the month your bill is actually due (1-31)." },
+                { title: "Smart Default Date", content: "Notice the 'Day' box defaults to TOMORROW (" + (new Date().getDate() + 1) + "). We do this to help you add upcoming bills fast. You can change this to any day (1-31)." },
                 { title: "Step 3: The Heatmap", content: "The timeline on the right shows your future balance every single day. If it turns RED, that's a day you will be broke. Fix it before it happens!" }
             ];
 
