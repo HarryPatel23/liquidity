@@ -165,11 +165,12 @@
 
             const sortedItems = [...items].sort((a, b) => getNextOccurrence(a.day) - getNextOccurrence(b.day));
 
-            // Walkthrough Content
+            // Walkthrough Content - UPDATED FOR CLARITY
             const steps = [
                 { title: "Welcome to Liquidity", content: "Most finance apps track where your money went. We track where it's GOING. This tool predicts if you will run out of cash in the next 90 days." },
                 { title: "Step 1: Current Balance", content: "Enter your 'Right Now' bank balance in the top left. This is the starting point for the future prediction." },
-                { title: "Step 2: Recurring Items", content: "Add bills (Rent, Netflix) and Income (Salary). Enter the DAY of the month they happen. We automatically calculate the next due date." },
+                { title: "Step 2: Recurring Items", content: "Add bills (Rent, Netflix) and Income (Salary). Enter the DAY of the month they happen." },
+                { title: "Smart Default Date", content: "Notice the 'Day' box defaults to TOMORROW. We do this to help you add upcoming bills quickly, but you should change this number to whatever day of the month your bill is actually due (1-31)." },
                 { title: "Step 3: The Heatmap", content: "The timeline on the right shows your future balance every single day. If it turns RED, that's a day you will be broke. Fix it before it happens!" }
             ];
 
@@ -223,10 +224,19 @@
                             <Card>
                                 <h3 className="font-bold text-white mb-4 text-sm">Add Recurring Item</h3>
                                 <div className="space-y-3">
-                                    <input type="text" placeholder="Name (e.g. Rent)" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Description</label>
+                                        <input type="text" placeholder="Name (e.g. Rent)" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                                    </div>
                                     <div className="grid grid-cols-2 gap-3">
-                                        <input type="number" placeholder="Amount" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.amount} onChange={e => setNewItem({...newItem, amount: e.target.value})} />
-                                        <input type="number" min="1" max="31" placeholder="Day (1-31)" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.day} onChange={e => setNewItem({...newItem, day: e.target.value})} />
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Amount</label>
+                                            <input type="number" placeholder="0.00" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.amount} onChange={e => setNewItem({...newItem, amount: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Day of Month (1-31)</label>
+                                            <input type="number" min="1" max="31" placeholder="DD" className="w-full bg-slate-900 text-white rounded px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 outline-none" value={newItem.day} onChange={e => setNewItem({...newItem, day: e.target.value})} />
+                                        </div>
                                     </div>
                                     <div className="flex bg-slate-900 rounded border border-slate-700 p-1 mt-2">
                                         <button className={`flex-1 text-xs rounded py-2 font-semibold ${newItem.type === 'expense' ? 'bg-red-500/20 text-red-400' : 'text-slate-500'}`} onClick={() => setNewItem({...newItem, type: 'expense'})}>Expense</button>
